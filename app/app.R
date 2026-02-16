@@ -163,6 +163,7 @@ ui <- navbarPage(
 
 server <- function(input, output, session) {
   
+  # Set reactive values
   active_session <- reactiveVal(NULL)
   paused_sessions <- reactiveVal(NULL)
   selected_resume_id <- reactiveVal(NULL)
@@ -175,9 +176,10 @@ server <- function(input, output, session) {
   ### Session Management ###
   ##########################
   
+  # Get id and name of active session, if any
   refresh_active_session <- function() {
     df <- dbGetQuery(pool, "
-    SELECT *
+    SELECT id, name
     FROM iz_sessions
     WHERE is_active = TRUE
     ORDER BY created_at DESC NULLS LAST
@@ -186,11 +188,13 @@ server <- function(input, output, session) {
     if (nrow(df) == 0) active_session(NULL) else active_session(df[1, , drop = FALSE])
   }
   
+  # Set active session value at application start
   refresh_active_session()
   
+  # Get id and name of paused sessions from previous 24 hours
   refresh_pause_session <- function() {
     df <- dbGetQuery(pool, "
-    SELECT *
+    SELECT id, name
     FROM iz_sessions
     WHERE is_active = FALSE AND created_at > NOW() - INTERVAL '1 day'
     ORDER BY created_at DESC
@@ -198,8 +202,10 @@ server <- function(input, output, session) {
     paused_sessions(df)
   }
   
+  # Set paused session value at application start
   refresh_pause_session()
   
+  # Dynamically generate display for active session, if any
   output$dynamic_active_column <- renderUI({
     s <- active_session()
     if (is.null(s)) return(NULL)
@@ -231,6 +237,7 @@ server <- function(input, output, session) {
     )
   })
   
+  # Dynamically generate display for paused sessions, if any
   output$dynamic_pause_column <- renderUI({
     p <- paused_sessions()
     req(!is.null(p), nrow(p) > 0)
@@ -255,23 +262,26 @@ server <- function(input, output, session) {
     )
   })
   
-  
+  # Resume active session -> IZ page
   observeEvent(input$resume_active_session, {
     updateNavbarPage(session, "main_nav", selected = "zone")
   })
   
+  # Exit active session -> Home Page
   observeEvent(input$exit, {
     updateNavbarPage(session, "main_nav", selected = "home")
   })
   
+  # Pause active session from IZ page -> Home page + set active to false
   observeEvent(input$pause_active_session2, {
     poolWithTransaction(pool, function(db) {
       dbExecute(db, "UPDATE iz_sessions SET is_active = FALSE WHERE is_active = TRUE")
     })
     updateNavbarPage(session, "main_nav", selected = "home")
-
   })
   
+  # When navigating back to home page for any reason 
+  # -> Reset glove and ball location to middle-middle
   observeEvent(input$main_nav, {
     if (identical(input$main_nav, "home")) {
       session$onFlushed(function() {
@@ -283,6 +293,7 @@ server <- function(input, output, session) {
       }, once = TRUE)
     }
   }, ignoreInit = TRUE)
+  
   
   observeEvent(input$pause_active_session, {
     poolWithTransaction(pool, function(db) {
@@ -322,6 +333,8 @@ server <- function(input, output, session) {
     updateNavbarPage(session, "main_nav", selected = "zone")
     refresh_active_session()
     refresh_pause_session()
+    
+    updateTextInput(session, "new_session_name", value = "")
   })
   
   output$iz_title <- renderText({
