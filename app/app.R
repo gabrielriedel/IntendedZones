@@ -82,7 +82,7 @@ ui <- navbarPage(
       column(
         width = 2,
         card(
-          card_header("Select Pitch Type"),
+          card_header("Select Pitch Type", style = "border-color: green"),
           card_body(
             actionButton(
               "select_FF",
@@ -144,9 +144,11 @@ ui <- navbarPage(
           )
         )
       ),
+      # UI Strike Zone Plot
       column(
         width = 10,
         card(
+          card_header(h2(textOutput("iz_title"), style = "text-align: center; border-color: green;")),
           card_body(
             plotOutput("strike_zone", click = "zone_click", height = 800)
           )
@@ -161,13 +163,17 @@ ui <- navbarPage(
 
 server <- function(input, output, session) {
   
-  ##########################
-  ### Session Management ###
-  ##########################
-  
   active_session <- reactiveVal(NULL)
   paused_sessions <- reactiveVal(NULL)
   selected_resume_id <- reactiveVal(NULL)
+  
+  cx <- reactiveVal(0)
+  cy <- reactiveVal(2.55)
+  ball_img <- reactiveVal(NULL)
+  
+  ##########################
+  ### Session Management ###
+  ##########################
   
   refresh_active_session <- function() {
     df <- dbGetQuery(pool, "
@@ -235,30 +241,19 @@ server <- function(input, output, session) {
         card_header("Resume Previous Session", style = "background-color: #1e4d2b; color: white;"),
         card_body(
           style = "border: 2px solid white;",
-          tagList(
-            lapply(seq_len(nrow(p)), function(i) {
-              row <- p[i, , drop = FALSE]
-              id_chr <- as.character(row$id)
-              
-              actionButton(
-                inputId = paste0("resume_", id_chr),
-                label   = paste("Resume:", row$name)
-              )
-            })
+          selectInput(
+            "paused_session_id", 
+            "Select Session to Resume",
+            choices = setNames(p$id, p$name)
+          ),
+          actionButton(
+            inputId = "resume_paused", 
+            label = "Resume"
           )
         )
       )
     )
   })
-  
-  observeEvent(input$main_nav, {
-    if (identical(input$main_nav, "home")) {
-      session$onFlushed(function() {
-        refresh_active_session()
-        refresh_pause_session()
-      }, once = TRUE)
-    }
-  }, ignoreInit = TRUE)
   
   
   observeEvent(input$resume_active_session, {
@@ -274,9 +269,20 @@ server <- function(input, output, session) {
       dbExecute(db, "UPDATE iz_sessions SET is_active = FALSE WHERE is_active = TRUE")
     })
     updateNavbarPage(session, "main_nav", selected = "home")
-    refresh_active_session()
-    refresh_pause_session()
+
   })
+  
+  observeEvent(input$main_nav, {
+    if (identical(input$main_nav, "home")) {
+      session$onFlushed(function() {
+        refresh_active_session()
+        refresh_pause_session()
+        cx(0)
+        cy(2.55)
+        ball_img(NULL)
+      }, once = TRUE)
+    }
+  }, ignoreInit = TRUE)
   
   observeEvent(input$pause_active_session, {
     poolWithTransaction(pool, function(db) {
@@ -286,31 +292,18 @@ server <- function(input, output, session) {
     refresh_pause_session()
   })
   
-  observe({
-    p <- paused_sessions()
-    req(!is.null(p), nrow(p) > 0)
+  observeEvent(input$resume_paused, {
+    req(!is.null(input$paused_session_id))
     
-    lapply(seq_len(nrow(p)), function(i) {
-      row <- p[i, , drop = FALSE]
-      id_chr <- as.character(row$id)
-      btn_id <- paste0("resume_", id_chr)
-      
-      observeEvent(input[[btn_id]], {
-        selected_resume_id(row$id)  # store it
-        
-        poolWithTransaction(pool, function(db) {
-          dbExecute(db, "UPDATE iz_sessions SET is_active = FALSE WHERE is_active = TRUE")
-          dbExecute(db, "UPDATE iz_sessions SET is_active = TRUE WHERE id = $1",
-                    params = list(row$id))
-        })
-        
-        updateNavbarPage(session, "main_nav", selected = "zone")
-      }, ignoreInit = TRUE)
-      
-      
-      refresh_active_session()
-      refresh_pause_session()
+    poolWithTransaction(pool, function(db) {
+      dbExecute(db, "UPDATE iz_sessions SET is_active = FALSE WHERE is_active = TRUE")
+      dbExecute(db, "UPDATE iz_sessions SET is_active = TRUE WHERE id = $1",
+                params = list(input$paused_session_id))
     })
+    
+    updateNavbarPage(session, "main_nav", selected = "zone")
+    refresh_active_session()
+    refresh_pause_session()
   })
   
   
@@ -326,9 +319,19 @@ server <- function(input, output, session) {
       )
     })
     
+    updateNavbarPage(session, "main_nav", selected = "zone")
     refresh_active_session()
     refresh_pause_session()
-    updateNavbarPage(session, "main_nav", selected = "zone")
+  })
+  
+  output$iz_title <- renderText({
+    s <- active_session()
+    if(is.null(s)){
+      paste("No Active Session")
+    }
+    else{
+      paste("Intended Zones Session - ", s$name)
+    }
   })
   
   
@@ -352,10 +355,6 @@ server <- function(input, output, session) {
   ball_height <- 1.25
   
   glove_img <- readPNG("www/glove.png")
-  
-  cx <- reactiveVal(0)
-  cy <- reactiveVal(2.55)
-  ball_img <- reactiveVal(NULL)
   
   calc_bounds <- function(cx, cy, img_width, img_height){
     xmin <- cx - img_width/2
@@ -403,12 +402,13 @@ server <- function(input, output, session) {
     p
   }, bg = "transparent")
   
-  
+  # Update click coordinates
   observeEvent(input$zone_click, {
     cx(input$zone_click$x)
     cy(input$zone_click$y)
   })
   
+  # Update pitch label on selection
   observeEvent(input$select_FF, {
     ball_img(readPNG("www/FF.png"))
   })
