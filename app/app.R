@@ -6,6 +6,7 @@ library(ggplot2)
 library(png)
 library(grid)
 library(shinyWidgets)
+library(glue)
 
 
 # Connect to DB
@@ -98,73 +99,49 @@ ui <- navbarPage(
             card(
               card_header("Select Pitch Type", style = "border-color: green"),
               card_body(
-                actionButton(
-                  "select_FF",
-                  "FF",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_SI",
-                  "SI",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_CT",
-                  "CT",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_SL",
-                  "SL",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_SW",
-                  "SW",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_CB",
-                  "CB",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_CH",
-                  "CH",
-                  class = "w-60"
-                ),
-                actionButton(
-                  "select_SP",
-                  "SP",
-                  class = "w-60"
+                radioGroupButtons(
+                  "select_pitch_type",
+                  "Pitch Type",
+                  choices = c("FF", "SI", "CT", "SL", "SW", "CB", "CH", "SP"),
+                  selected = character(0),
+                  status = "secondary",
+                  size = "lg",
+                  direction = "vertical",
+                  justified = TRUE,
+                  checkIcon = list(yes = icon("check"))
                 )
-              )
+              ),
+              style = "border-color: green"
+            ),
+            actionButton(
+              "exit",
+              "Exit",
+              style = "border-color: red;"
+            ),
+            actionButton(
+              "pause_active_session_2",
+              "Pause"
             )
           ),
           column(
             width = 6,
             card(
-              card_header("Select Outs", style = "border-color: green"),
+              card_header("Select Outs and Count", style = "border-color: green"),
               card_body(
                 radioGroupButtons(
-                  "outs",
+                  "select_outs",
                   "Outs",
                   choices = c(0, 1, 2),
                   status = "secondary", 
-                  size = "lg",        
+                  size = "lg",
                   justified = TRUE,
                   checkIcon = list(yes = icon("check"))
-                )
-              )
-            ),
-            card(
-              card_header("Select Count", style = "border-color: green"),
-              card_body(
+                ),
                 fluidRow(
                   column(
                     width=6,
                     radioGroupButtons(
-                      "ball_count",
+                      "select_balls",
                       "Balls",
                       choices = c(0,1,2,3),
                       status = "secondary", 
@@ -177,7 +154,7 @@ ui <- navbarPage(
                   column(
                     width=6,
                     radioGroupButtons(
-                      "strike_count",
+                      "select_strikes",
                       "Strikes",
                       choices = c(0,1,2),
                       status = "secondary", 
@@ -188,14 +165,16 @@ ui <- navbarPage(
                     )
                   )
                 )
-              )
+              ),
+              style = "border-color: green"
             ),
+            # End Card
             card(
               card_header("Pitch Navigation", style = "border-color: green"),
               card_body(
                 actionButton(
                   "actual_mode",
-                  "Actual Location"
+                  "Actual Location Toggle"
                 ),
                 actionButton(
                   "reset",
@@ -205,27 +184,20 @@ ui <- navbarPage(
                   "next_pitch",
                   "Next Pitch"
                 )
-              )
+              ),
+              style = "border-color: green"
             )
           )
-        ),
-        fluidRow(
-            actionButton(
-              "exit",
-              "Exit",
-              style = "border-color: red;"
-            ),
-            actionButton(
-              "pause_active_session_2",
-              "Pause"
-            )
         )
       ),
       # UI Strike Zone Plot
       column(
         width = 8,
         card(
-          card_header(h2(textOutput("iz_title"), style = "text-align: center; border-color: green;")),
+          card_header(
+            h2(textOutput("iz_title"), style = "text-align: center; border-color: green;"),
+            p(textOutput("iz_state"), style = "text-align: center;")
+          ),
           card_body(
             plotOutput("strike_zone", click = "zone_click", height = 800)
           )
@@ -245,11 +217,77 @@ server <- function(input, output, session) {
   paused_sessions <- reactiveVal(NULL)
   selected_resume_id <- reactiveVal(NULL)
   
-  intended_active <- reactiveVal(FALSE)
+  actual_toggle <- reactiveVal(FALSE)
   
-  cx <- reactiveVal(0)
-  cy <- reactiveVal(2.55)
+  pitch_type <- reactiveVal(NULL)
+  outs <- reactiveVal(0)
+  balls <- reactiveVal(0)
+  strikes <- reactiveVal(0)
+  pitch_num <- reactiveVal(1)
+  
+  intended_x <- reactiveVal(0)
+  intended_y <- reactiveVal(2.55)
+  actual_x <- reactiveVal(NULL)
+  actual_y <- reactiveVal(NULL)
   ball_img <- reactiveVal(NULL)
+  
+  observeEvent(input$select_pitch_type, {
+    pitch_type(input$select_pitch_type)
+    ball_img(readPNG(glue("www/{pitch_type()}.png")))
+  })
+  
+  observeEvent(input$select_outs, {
+    outs(input$select_outs)
+  })
+  
+  observeEvent(input$select_balls, {
+    balls(input$select_balls)
+  })
+  
+  observeEvent(input$select_strikes, {
+    strikes(input$select_strikes)
+  })
+  
+  observeEvent(input$actual_mode, {
+    actual_toggle(!actual_toggle())
+  })
+  
+  observeEvent(input$reset, {
+    updateRadioGroupButtons(session, "select_pitch_type", selected = character(0))
+    updateRadioGroupButtons(session, "select_outs", selected = 0)
+    updateRadioGroupButtons(session, "select_balls", selected = 0)
+    updateRadioGroupButtons(session, "select_strikes", selected = 0)
+    intended_x(0)
+    intended_y(2.55)
+    actual_x(NULL)
+    actual_y(NULL)
+    ball_img(NULL)
+    actual_toggle(FALSE)
+  })
+  
+  observeEvent(input$next_pitch, {
+    req(actual_x(), actual_y())
+    
+    poolWithTransaction(pool, function(db) {
+      dbExecute(
+        db,
+        "INSERT INTO iz_pitches (session_id, pitch_type, pitch_num, intended_x, intended_y, actual_x, actual_y) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        params = list(active_session()$id, pitch_type(), pitch_num(), intended_x(), intended_y(), actual_x(), actual_y())
+      )
+    })
+    
+    pitch_num(1+pitch_num())
+    actual_x(NULL)
+    actual_y(NULL)
+    actual_toggle(FALSE)
+    updateRadioGroupButtons(session, "select_pitch_type", selected = character(0))
+    updateRadioGroupButtons(session, "select_outs", selected = 0)
+    updateRadioGroupButtons(session, "select_balls", selected = 0)
+    updateRadioGroupButtons(session, "select_strikes", selected = 0)
+    intended_x(0)
+    intended_y(2.55)
+    ball_img(NULL)
+  })
   
   ##########################
   ### Session Management ###
@@ -366,8 +404,8 @@ server <- function(input, output, session) {
       session$onFlushed(function() {
         refresh_active_session()
         refresh_pause_session()
-        cx(0)
-        cy(2.55)
+        intended_x(0)
+        intended_y(2.55)
         ball_img(NULL)
       }, once = TRUE)
     }
@@ -426,6 +464,16 @@ server <- function(input, output, session) {
     }
   })
   
+  output$iz_state <- renderText({
+    if(!is.null(pitch_type())){
+      paste0("Pitch Type: ", pitch_type(), " | Count: ", balls(), "-",  strikes(), " | Outs: ", outs(), " | Pitch Number: ", pitch_num())
+    }
+    else{
+      paste0("No pitch type selected | Count: ", balls(), "-",  strikes(), " | Outs: ", outs(), " | Pitch Number: ", pitch_num())
+    }
+  })
+  
+  
   
 
   
@@ -448,11 +496,11 @@ server <- function(input, output, session) {
   
   glove_img <- readPNG("www/glove.png")
   
-  calc_bounds <- function(cx, cy, img_width, img_height){
-    xmin <- cx - img_width/2
-    xmax <- cx + img_width/2
-    ymin <- cy - img_height/2
-    ymax <- cy + img_height/2
+  calc_bounds <- function(intended_x, intended_y, img_width, img_height){
+    xmin <- intended_x - img_width/2
+    xmax <- intended_x + img_width/2
+    ymin <- intended_y - img_height/2
+    ymax <- intended_y + img_height/2
     return(c(xmin, xmax, ymin, ymax))
   }
   
@@ -473,7 +521,7 @@ server <- function(input, output, session) {
   
   output$strike_zone <- renderPlot({
     img_grob_glove <- rasterGrob(glove_img, interpolate = TRUE)
-    glove_bounds <- calc_bounds(cx(), cy(), glove_width, glove_height)
+    glove_bounds <- calc_bounds(intended_x(), intended_y(), glove_width, glove_height)
     
     p <- base_zone_plot +
       annotation_custom(img_grob_glove,
@@ -481,14 +529,18 @@ server <- function(input, output, session) {
                         ymin=glove_bounds[3], ymax=glove_bounds[4]
       )
     
-    if (!is.null(ball_img())) {
+    
+    if(!is.null(ball_img())){
       img_grob_ball <- rasterGrob(ball_img(), interpolate = TRUE)
-      ball_bounds <- calc_bounds(cx(), cy(), ball_width, ball_height)
-      
+      if(actual_toggle() & !is.null(actual_x()) & !is.null(actual_y())){
+        ball_bounds <- calc_bounds(actual_x(), actual_y(), ball_width, ball_height)
+      }
+      else if (!is.null(intended_x()) & !is.null(intended_y())){
+        ball_bounds <- calc_bounds(intended_x(), intended_y(), ball_width, ball_height)
+      }
       p <- p + annotation_custom(img_grob_ball,
                                  xmin=ball_bounds[1], xmax=ball_bounds[2],
-                                 ymin=ball_bounds[3], ymax=ball_bounds[4]
-      )
+                                 ymin=ball_bounds[3], ymax=ball_bounds[4])
     }
     
     p
@@ -496,41 +548,15 @@ server <- function(input, output, session) {
   
   # Update click coordinates
   observeEvent(input$zone_click, {
-    cx(input$zone_click$x)
-    cy(input$zone_click$y)
-  })
-  
-  # Update pitch label on selection
-  observeEvent(input$select_FF, {
-    ball_img(readPNG("www/FF.png"))
-  })
-  
-  observeEvent(input$select_SI, {
-    ball_img(readPNG("www/SI.png"))
-  })
-  
-  observeEvent(input$select_CT, {
-    ball_img(readPNG("www/CT.png"))
-  })
-  
-  observeEvent(input$select_SL, {
-    ball_img(readPNG("www/SL.png"))
-  })
-  
-  observeEvent(input$select_SW, {
-    ball_img(readPNG("www/SW.png"))
-  })
-  
-  observeEvent(input$select_CB, {
-    ball_img(readPNG("www/CB.png"))
-  })
-  
-  observeEvent(input$select_CH, {
-    ball_img(readPNG("www/CH.png"))
-  })
-  
-  observeEvent(input$select_SP, {
-    ball_img(readPNG("www/SP.png"))
+    if(actual_toggle()){
+      actual_x(input$zone_click$x)
+      actual_y(input$zone_click$y)
+      ball_img(readPNG("www/baseball.png"))
+    }
+    else{
+      intended_x(input$zone_click$x)
+      intended_y(input$zone_click$y)
+    }
   })
 }
   
