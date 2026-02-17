@@ -93,12 +93,12 @@ ui <- navbarPage(
       # Button UI/UX
       column(
         width = 4,
-        fluidRow(
-          column(
-            width = 6,
-            card(
-              card_header("Select Pitch Type", style = "border-color: green"),
-              card_body(
+        card(
+          card_header(h6(textOutput("iz_state")), style = "text-align: center; border-color: green"),
+          card_body(
+            fluidRow(
+              column(
+                6,
                 radioGroupButtons(
                   "select_pitch_type",
                   "Pitch Type",
@@ -111,23 +111,8 @@ ui <- navbarPage(
                   checkIcon = list(yes = icon("check"))
                 )
               ),
-              style = "border-color: green"
-            ),
-            actionButton(
-              "exit",
-              "Exit",
-              style = "border-color: red;"
-            ),
-            actionButton(
-              "pause_active_session_2",
-              "Pause"
-            )
-          ),
-          column(
-            width = 6,
-            card(
-              card_header("Select Outs and Count", style = "border-color: green"),
-              card_body(
+              column(
+                6,
                 radioGroupButtons(
                   "select_outs",
                   "Outs",
@@ -137,45 +122,59 @@ ui <- navbarPage(
                   justified = TRUE,
                   checkIcon = list(yes = icon("check"))
                 ),
+                fluidRow(
+                  column(
+                    6,
                     radioGroupButtons(
                       "select_balls",
                       "Balls",
                       choices = c(0,1,2,3),
                       status = "secondary", 
                       size = "lg",     
+                      direction = "vertical",
                       justified = TRUE,
                       checkIcon = list(yes = icon("check"))
-                    ),
+                    )
+                  ),
+                  column(
+                    6,
                     radioGroupButtons(
                       "select_strikes",
                       "Strikes",
                       choices = c(0,1,2),
                       status = "secondary", 
                       size = "lg",
+                      direction = "vertical",
                       justified = TRUE,
                       checkIcon = list(yes = icon("check"))
                     )
-              ),
-              style = "border-color: green"
-            ),
-            # End Card
-            card(
-              card_header("Pitch Navigation", style = "border-color: green"),
-              card_body(
-                actionButton(
-                  "actual_mode",
-                  "Actual Location Toggle"
-                ),
-                actionButton(
-                  "reset",
-                  "Reset Pitch"
-                ),
-                actionButton(
-                  "next_pitch",
-                  "Next Pitch"
+                  )
                 )
-              ),
-              style = "border-color: green"
+              )
+            )
+          ),
+          style = "border-color: green"
+        ),
+        fluidRow(
+          column(
+            4,
+            actionButton(
+              "actual_mode",
+              "Actual Location Toggle"
+            )
+          ),
+          column(
+            4,
+            actionButton(
+              "reset",
+              "Reset Pitch"
+            )
+          ),
+          column(
+            4,
+            actionButton(
+              "next_pitch",
+              "Next Pitch"
             )
           )
         )
@@ -184,10 +183,6 @@ ui <- navbarPage(
       column(
         width = 8,
         card(
-          card_header(
-            h2(textOutput("iz_title"), style = "text-align: center; border-color: green;"),
-            p(textOutput("iz_state"), style = "text-align: center;")
-          ),
           card_body(
             plotOutput("strike_zone", click = "zone_click", height = 800)
           )
@@ -195,8 +190,6 @@ ui <- navbarPage(
       )
     )
   )
-  
-  
 )
 
 
@@ -260,7 +253,14 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$next_pitch, {
-    req(actual_x(), actual_y())
+    if (is.null(actual_x()) || is.null(actual_y())) {
+      showNotification(
+        "Please select the actual location of the pitch before continuing.", 
+        type = "error",
+        duration = 5
+      )
+      return()
+    }
     
     poolWithTransaction(pool, function(db) {
       dbExecute(
@@ -449,10 +449,10 @@ server <- function(input, output, session) {
   
   output$iz_state <- renderText({
     if(!is.null(pitch_type())){
-      paste0("Pitch Type: ", pitch_type(), " | Count: ", balls(), "-",  strikes(), " | Outs: ", outs(), " | Pitch Number: ", pitch_num())
+      paste0("Pitch: ", pitch_type(), " | Count: ", balls(), "-",  strikes(), " | Outs: ", outs(), " | Pitch Number: ", pitch_num())
     }
     else{
-      paste0("No pitch type selected | Count: ", balls(), "-",  strikes(), " | Outs: ", outs(), " | Pitch Number: ", pitch_num())
+      paste0("Count: ", balls(), "-",  strikes(), " | Outs: ", outs(), " | Pitch Number: ", pitch_num())
     }
   })
   
@@ -492,7 +492,7 @@ server <- function(input, output, session) {
       color = "#d4af37",
       lineend = "round"
     ) +
-    coord_fixed(xlim = c(-1.4, 1.4), ylim = c(1.0, 4.1), expand = FALSE) +
+    coord_fixed(xlim = c(-2, 2), ylim = c(0, 5), expand = FALSE) +
     theme_void() +
     theme(
       plot.background  = element_rect(fill = "transparent", color = NA),
