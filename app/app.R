@@ -5,6 +5,7 @@ library(RPostgres)
 library(ggplot2)
 library(png)
 library(grid)
+library(shinyWidgets)
 
 
 # Connect to DB
@@ -59,6 +60,16 @@ ui <- navbarPage(
               "Session Name",
               placeholder = "e.g. Griffin Naess bullpen"
             ),
+            textInput(
+              "new_first_name",
+              "Pitcher First Name",
+              placeholder = "e.g. Griffin"
+            ),
+            textInput(
+              "new_last_name",
+              "Pitcher Last Name",
+              placeholder = "e.g. Naess"
+            ),
             actionButton(
               "submit_new_session",
               "Create New Session"
@@ -80,73 +91,139 @@ ui <- navbarPage(
     fluidRow(
       # Button UI/UX
       column(
-        width = 2,
-        card(
-          card_header("Select Pitch Type", style = "border-color: green"),
-          card_body(
-            actionButton(
-              "select_FF",
-              "FF",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_SI",
-              "SI",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_CT",
-              "CT",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_SL",
-              "SL",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_SW",
-              "SW",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_CB",
-              "CB",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_CH",
-              "CH",
-              class = "w-60"
-            ),
-            actionButton(
-              "select_SP",
-              "SP",
-              class = "w-60"
-            ),
-            fluidRow(
-              column(
-                6,
+        width = 4,
+        fluidRow(
+          column(
+            width = 6,
+            card(
+              card_header("Select Pitch Type", style = "border-color: green"),
+              card_body(
                 actionButton(
-                  "pause_active_session2",
-                  "Pause"
+                  "select_FF",
+                  "FF",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_SI",
+                  "SI",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_CT",
+                  "CT",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_SL",
+                  "SL",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_SW",
+                  "SW",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_CB",
+                  "CB",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_CH",
+                  "CH",
+                  class = "w-60"
+                ),
+                actionButton(
+                  "select_SP",
+                  "SP",
+                  class = "w-60"
                 )
-              ),
-              column(
-                6,
+              )
+            )
+          ),
+          column(
+            width = 6,
+            card(
+              card_header("Select Outs", style = "border-color: green"),
+              card_body(
+                radioGroupButtons(
+                  "outs",
+                  "Outs",
+                  choices = c(0, 1, 2),
+                  status = "secondary", 
+                  size = "lg",        
+                  justified = TRUE,
+                  checkIcon = list(yes = icon("check"))
+                )
+              )
+            ),
+            card(
+              card_header("Select Count", style = "border-color: green"),
+              card_body(
+                fluidRow(
+                  column(
+                    width=6,
+                    radioGroupButtons(
+                      "ball_count",
+                      "Balls",
+                      choices = c(0,1,2,3),
+                      status = "secondary", 
+                      size = "lg",     
+                      direction = "vertical",
+                      justified = TRUE,
+                      checkIcon = list(yes = icon("check"))
+                    ),
+                  ),
+                  column(
+                    width=6,
+                    radioGroupButtons(
+                      "strike_count",
+                      "Strikes",
+                      choices = c(0,1,2),
+                      status = "secondary", 
+                      size = "lg",
+                      direction = "vertical",
+                      justified = TRUE,
+                      checkIcon = list(yes = icon("check"))
+                    )
+                  )
+                )
+              )
+            ),
+            card(
+              card_header("Pitch Navigation", style = "border-color: green"),
+              card_body(
                 actionButton(
-                  "exit",
-                  "Exit",
-                  style = "border-color: red;"
+                  "actual_mode",
+                  "Actual Location"
+                ),
+                actionButton(
+                  "reset",
+                  "Reset Pitch"
+                ),
+                actionButton(
+                  "next_pitch",
+                  "Next Pitch"
                 )
               )
             )
           )
+        ),
+        fluidRow(
+            actionButton(
+              "exit",
+              "Exit",
+              style = "border-color: red;"
+            ),
+            actionButton(
+              "pause_active_session_2",
+              "Pause"
+            )
         )
       ),
       # UI Strike Zone Plot
       column(
-        width = 10,
+        width = 8,
         card(
           card_header(h2(textOutput("iz_title"), style = "text-align: center; border-color: green;")),
           card_body(
@@ -168,6 +245,8 @@ server <- function(input, output, session) {
   paused_sessions <- reactiveVal(NULL)
   selected_resume_id <- reactiveVal(NULL)
   
+  intended_active <- reactiveVal(FALSE)
+  
   cx <- reactiveVal(0)
   cy <- reactiveVal(2.55)
   ball_img <- reactiveVal(NULL)
@@ -179,7 +258,7 @@ server <- function(input, output, session) {
   # Get id and name of active session, if any
   refresh_active_session <- function() {
     df <- dbGetQuery(pool, "
-    SELECT id, name
+    SELECT id, session_name
     FROM iz_sessions
     WHERE is_active = TRUE
     ORDER BY created_at DESC NULLS LAST
@@ -194,7 +273,7 @@ server <- function(input, output, session) {
   # Get id and name of paused sessions from previous 24 hours
   refresh_pause_session <- function() {
     df <- dbGetQuery(pool, "
-    SELECT id, name
+    SELECT id, session_name, first_name, last_name
     FROM iz_sessions
     WHERE is_active = FALSE AND created_at > NOW() - INTERVAL '1 day'
     ORDER BY created_at DESC
@@ -216,7 +295,7 @@ server <- function(input, output, session) {
         card_header("Active Session", style = "background-color: #1e4d2b; color: white;"),
         card_body(
           style = "border: 2px solid white;",
-          p(s$name),
+          p(s$session_name),
           layout_column_wrap(
             width = 1/2,
             actionButton(
@@ -251,7 +330,7 @@ server <- function(input, output, session) {
           selectInput(
             "paused_session_id", 
             "Select Session to Resume",
-            choices = setNames(p$id, p$name)
+            choices = setNames(p$id, p$session_name)
           ),
           actionButton(
             inputId = "resume_paused", 
@@ -319,14 +398,14 @@ server <- function(input, output, session) {
   
   
   observeEvent(input$submit_new_session, {
-    req(input$new_session_name)
+    req(input$new_session_name, input$new_first_name, input$new_last_name)
     
     poolWithTransaction(pool, function(db) {
       dbExecute(db, "UPDATE iz_sessions SET is_active = FALSE WHERE is_active = TRUE")
       dbExecute(
         db,
-        "INSERT INTO iz_sessions (name, is_active) VALUES ($1, TRUE)",
-        params = list(input$new_session_name)
+        "INSERT INTO iz_sessions (session_name, is_active, first_name, last_name) VALUES ($1, TRUE, $2, $3)",
+        params = list(input$new_session_name, input$new_first_name, input$new_last_name)
       )
     })
     
@@ -343,7 +422,7 @@ server <- function(input, output, session) {
       paste("No Active Session")
     }
     else{
-      paste("Intended Zones Session - ", s$name)
+      paste("Intended Zones Session - ", s$session_name)
     }
   })
   
