@@ -137,34 +137,24 @@ ui <- navbarPage(
                   justified = TRUE,
                   checkIcon = list(yes = icon("check"))
                 ),
-                fluidRow(
-                  column(
-                    width=6,
                     radioGroupButtons(
                       "select_balls",
                       "Balls",
                       choices = c(0,1,2,3),
                       status = "secondary", 
                       size = "lg",     
-                      direction = "vertical",
                       justified = TRUE,
                       checkIcon = list(yes = icon("check"))
                     ),
-                  ),
-                  column(
-                    width=6,
                     radioGroupButtons(
                       "select_strikes",
                       "Strikes",
                       choices = c(0,1,2),
                       status = "secondary", 
                       size = "lg",
-                      direction = "vertical",
                       justified = TRUE,
                       checkIcon = list(yes = icon("check"))
                     )
-                  )
-                )
               ),
               style = "border-color: green"
             ),
@@ -252,7 +242,7 @@ server <- function(input, output, session) {
     actual_toggle(!actual_toggle())
   })
   
-  observeEvent(input$reset, {
+  reset_strike_zone <- function(){
     updateRadioGroupButtons(session, "select_pitch_type", selected = character(0))
     updateRadioGroupButtons(session, "select_outs", selected = 0)
     updateRadioGroupButtons(session, "select_balls", selected = 0)
@@ -263,6 +253,10 @@ server <- function(input, output, session) {
     actual_y(NULL)
     ball_img(NULL)
     actual_toggle(FALSE)
+  }
+  
+  observeEvent(input$reset, {
+    reset_strike_zone()
   })
   
   observeEvent(input$next_pitch, {
@@ -277,16 +271,7 @@ server <- function(input, output, session) {
     })
     
     pitch_num(1+pitch_num())
-    actual_x(NULL)
-    actual_y(NULL)
-    actual_toggle(FALSE)
-    updateRadioGroupButtons(session, "select_pitch_type", selected = character(0))
-    updateRadioGroupButtons(session, "select_outs", selected = 0)
-    updateRadioGroupButtons(session, "select_balls", selected = 0)
-    updateRadioGroupButtons(session, "select_strikes", selected = 0)
-    intended_x(0)
-    intended_y(2.55)
-    ball_img(NULL)
+    reset_strike_zone()
   })
   
   ##########################
@@ -398,15 +383,13 @@ server <- function(input, output, session) {
   })
   
   # When navigating back to home page for any reason 
-  # -> Reset glove and ball location to middle-middle
+  # -> Reset strike zone state
   observeEvent(input$main_nav, {
     if (identical(input$main_nav, "home")) {
       session$onFlushed(function() {
         refresh_active_session()
         refresh_pause_session()
-        intended_x(0)
-        intended_y(2.55)
-        ball_img(NULL)
+        reset_strike_zone()
       }, once = TRUE)
     }
   }, ignoreInit = TRUE)
@@ -473,9 +456,6 @@ server <- function(input, output, session) {
     }
   })
   
-  
-  
-
   
   #################
   ## Strike Zone ##
